@@ -1,0 +1,4 @@
+.copilot-tracking/
+.github/extensions/yakka/.unit-*/
+*.local-workflow-lock
+*.local-workflow-write

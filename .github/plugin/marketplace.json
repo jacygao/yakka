@@ -1,0 +1,14 @@
+{
+  "name": "yakka",
+  "owner": {
+    "name": "Yakka"
+  },
+  "plugins": [
+    {
+      "name": "yakka",
+      "version": "0.1.0",
+      "description": "A local document-authoring and RPI execution harness.",
+      "source": "."
+    }
+  ]
+}

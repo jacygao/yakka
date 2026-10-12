@@ -1,0 +1,8 @@
+{
+  "name": "yakka",
+  "version": "0.1.0",
+  "description": "Create, refine, and execute three-document project plans through native RPI subagents.",
+  "repository": "https://github.com/jacygao/yakka",
+  "skills": [".github/skills"],
+  "extensions": [".github/extensions"]
+}

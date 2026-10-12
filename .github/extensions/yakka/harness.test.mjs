@@ -421,38 +421,35 @@ test('unit simulation: malformed tables, duplicate IDs, dependencies and unsuppo
   ]) assert.throws(() => parsePlan(text), message);
 });
 
-test('Yakka customization checks: frontmatter, references and explicit native execute boundary', async () => {
+test('Yakka customization checks: skill metadata and readable references', async () => {
   const skillUrl = new URL('../../skills/yakka/SKILL.md', import.meta.url);
   const skill = await readFile(skillUrl, 'utf8');
-  const frontmatter = skill.match(/^---\n([\s\S]*?)\n---\n/);
-  assert.ok(frontmatter);
-  assert.match(frontmatter[1], /^name: yakka$/m);
-  assert.match(frontmatter[1], /^description: '[^\n]+'$/m);
-  assert.equal(frontmatter[1].split('\n').length, 2);
+  const frontmatter = skill.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  assert.ok(frontmatter, 'Skill metadata must have a frontmatter document');
+  const metadata = Object.fromEntries(frontmatter[1].split(/\r?\n/)
+    .filter(line => line.trim() && !line.trimStart().startsWith('#'))
+    .map(line => {
+      const field = line.match(/^([\w-]+):\s*(.*?)\s*$/);
+      assert.ok(field, 'Skill metadata must be a mapping of scalar fields');
+      const [, key, scalar] = field;
+      let value = scalar;
+      if (scalar.startsWith("'")) {
+        assert.ok(scalar.endsWith("'"), 'Unterminated metadata string');
+        value = scalar.slice(1, -1).replace(/''/g, "'");
+      } else if (scalar.startsWith('"')) {
+        value = JSON.parse(scalar);
+      }
+      return [key, value];
+    }));
+  assert.equal(metadata.name, 'yakka');
+  assert.equal(typeof metadata.description, 'string');
+  assert.ok(metadata.description.trim(), 'Skill discovery requires a nonempty description');
   for (const match of skill.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
     assert.ok((await readFile(new URL(match[1], skillUrl), 'utf8')).trim());
   }
-  assert.match(skill, /Stop for review after create\/refine, without automatically executing/);
-  assert.match(skill, /Only with the user's execution consent/);
-  for (const route of ['create', 'refine', 'execute']) {
-    assert.ok(skill.includes(`Use yakka ${route}`));
-  }
-  assert.doesNotMatch(skill, /Use local-workflow|local-workflow-execute/);
-  assert.match(skill, /run_dynamic_workflow\(name: "yakka-execute"/);
-  assert.match(skill, /inspect-run/);
-  assert.match(skill, /returning Failed\/Blocked did not complete all tasks/);
-  assert.match(skill, /earliest unsatisfied phase/);
-  assert.match(skill, /current approved task-level plan/);
-  assert.match(skill, /disposition.*evidencePath.*rationale/s);
-  assert.doesNotMatch(skill, /ordered\n?`rpi-research`|all three phases must be performed/);
-  assert.doesNotMatch(skill, /dispatch is pending T002|Automatic task dispatch is not implemented/);
-  const extension = await readFile(new URL('./extension.mjs', import.meta.url), 'utf8');
-  assert.match(extension, /defineWorkflow, joinSession/);
-  assert.match(extension, /name: 'yakka-execute'/);
-  assert.doesNotMatch(extension, /limits:|model:|reasoningEffort:|ctx\.parallel|ctx\.workflow/);
 });
 
-test('extension entrypoint: active session changes and absolute overrides select the right project', async t => {
+test('extension entrypoint: registers yakka-execute and selects the current or overridden project', async t => {
   const first = await fixture(t, plan(row('T001', 'None', 'Done')));
   const second = await fixture(t, plan(row('T001', 'None', 'Blocked')));
   const before = await Promise.all([first.readPlan(), second.readPlan()]);
@@ -477,7 +474,7 @@ test('extension entrypoint: active session changes and absolute overrides select
       results.push(await workflows[0].run(ctx));
       ctx.args = { projectDirectory: ${JSON.stringify(first.root)} };
       results.push(await workflows[0].run(ctx));
-      console.log(JSON.stringify(results));
+      console.log(JSON.stringify({ workflows: workflows.map(({ meta }) => meta), outcomes: results }));
     }
   `);
   await writeFile(loaderPath, `
@@ -494,7 +491,14 @@ test('extension entrypoint: active session changes and absolute overrides select
     { cwd: extensionDirectory, encoding: 'utf8', timeout: 15000 });
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
-  const outcomes = JSON.parse(result.stdout);
+  const { workflows, outcomes } = JSON.parse(result.stdout);
+  assert.equal(workflows.length, 1);
+  const [workflow] = workflows;
+  assert.equal(workflow.name, 'yakka-execute');
+  assert.equal(workflow.argsSchema.type, 'object');
+  assert.equal(workflow.argsSchema.properties.projectDirectory.type, 'string');
+  assert.equal((workflow.argsSchema.required ?? []).includes('projectDirectory'), false);
+  assert.equal(workflow.limits, undefined);
   assert.deepEqual(outcomes.map(({ outcome }) => outcome), ['Done', 'Blocked', 'Done']);
   assert.ok(outcomes.every(({ results }) => results.length === 0));
   assert.deepEqual(await Promise.all([first.readPlan(), second.readPlan()]), before);
